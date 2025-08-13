@@ -1,9 +1,10 @@
-using Auth.Application.Commands;
-using Auth.Application.CQRS;
+using Common.CQRS;
 using Auth.Application.Common;
 using Auth.Domain.Entities;
 using Auth.Domain.Repositories;
 using Auth.Domain.Services;
+using Auth.Infrastructure.Services;
+using Auth.Application.Commands;
 
 namespace Auth.Application.Handlers;
 
@@ -11,38 +12,65 @@ public class RegisterUserCommandHandler : ICommandHandler<RegisterUserCommand, R
 {
     private readonly IUserRepository _userRepository;
     private readonly IAuthService _authService;
+    private readonly IMessageQueueService _messageQueueService;
 
-    public RegisterUserCommandHandler(IUserRepository userRepository, IAuthService authService)
+    public RegisterUserCommandHandler(
+        IUserRepository userRepository, 
+        IAuthService authService,
+        IMessageQueueService messageQueueService)
     {
         _userRepository = userRepository;
         _authService = authService;
+        _messageQueueService = messageQueueService;
     }
 
     public async Task<Result<RegisterUserData>> HandleAsync(RegisterUserCommand command, CancellationToken cancellationToken = default)
     {
-        var exists = await _userRepository.ExistsAsync(command.Username, command.Email);
-        if (exists)
+        try
         {
-            return Result<RegisterUserData>.Error(AuthErrorCode.UserAlreadyExists);
+            if (string.IsNullOrWhiteSpace(command.Username) || string.IsNullOrWhiteSpace(command.Email) || string.IsNullOrWhiteSpace(command.Password))
+            {
+                return Result<RegisterUserData>.Error((int)AuthErrorCode.InvalidInput);
+            }
+
+            var existingUser = await _userRepository.GetByUsernameAsync(command.Username);
+            if (existingUser != null)
+            {
+                return Result<RegisterUserData>.Error((int)AuthErrorCode.UserAlreadyExists);
+            }
+
+            existingUser = await _userRepository.GetByEmailAsync(command.Email);
+            if (existingUser != null)
+            {
+                return Result<RegisterUserData>.Error((int)AuthErrorCode.UserAlreadyExists);
+            }
+
+            var hashedPassword = _authService.HashPassword(command.Password);
+
+            var user = new User
+            {
+                Id = Guid.NewGuid(),
+                Username = command.Username,
+                Email = command.Email,
+                PasswordHash = hashedPassword,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            await _userRepository.AddAsync(user);
+
+            _messageQueueService.PublishUserCreated(user.Id, user.Email, user.Username);
+
+            var resultData = new RegisterUserData
+            {
+                UserId = user.Id
+            };
+
+            return Result<RegisterUserData>.Success(resultData, (int)SuccessCode.UserRegistered);
         }
-
-        var user = new User
+        catch (Exception)
         {
-            Id = Guid.NewGuid(),
-            Username = command.Username,
-            Email = command.Email,
-            PasswordHash = _authService.HashPassword(command.Password),
-            CreatedAt = DateTime.UtcNow,
-            IsActive = true
-        };
-
-        var createdUser = await _userRepository.AddAsync(user);
-
-        var data = new RegisterUserData
-        {
-            UserId = createdUser.Id
-        };
-
-        return Result<RegisterUserData>.Success(data, SuccessCode.UserRegistered);
+            return Result<RegisterUserData>.Error((int)AuthErrorCode.DatabaseError);
+        }
     }
 }

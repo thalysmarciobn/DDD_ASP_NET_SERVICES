@@ -1,5 +1,5 @@
+using Common.CQRS;
 using Auth.Application.Commands;
-using Auth.Application.CQRS;
 using Auth.Application.Queries;
 using Auth.Application.Common;
 using Microsoft.AspNetCore.Mvc;

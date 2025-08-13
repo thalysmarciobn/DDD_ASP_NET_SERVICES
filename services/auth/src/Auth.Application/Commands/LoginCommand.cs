@@ -1,4 +1,4 @@
-using Auth.Application.CQRS;
+using Common.CQRS;
 using Auth.Application.Common;
 
 namespace Auth.Application.Commands;

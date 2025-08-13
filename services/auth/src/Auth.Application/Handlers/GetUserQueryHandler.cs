@@ -1,7 +1,8 @@
-using Auth.Application.CQRS;
-using Auth.Application.Queries;
+using Common.CQRS;
 using Auth.Application.Common;
+using Auth.Domain.Entities;
 using Auth.Domain.Repositories;
+using Auth.Application.Queries;
 
 namespace Auth.Application.Handlers;
 
@@ -16,23 +17,29 @@ public class GetUserQueryHandler : IQueryHandler<GetUserQuery, Result<UserData>>
 
     public async Task<Result<UserData>> HandleAsync(GetUserQuery query, CancellationToken cancellationToken = default)
     {
-        var user = await _userRepository.GetByIdAsync(query.UserId);
-        
-        if (user == null)
+        try
         {
-            return Result<UserData>.Error(AuthErrorCode.UserNotFound);
+            var user = await _userRepository.GetByIdAsync(query.UserId);
+            if (user == null)
+            {
+                return Result<UserData>.Error((int)AuthErrorCode.UserNotFound);
+            }
+
+            var resultData = new UserData
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                CreatedAt = user.CreatedAt,
+                LastLoginAt = user.LastLoginAt,
+                IsActive = user.IsActive
+            };
+
+            return Result<UserData>.Success(resultData, (int)SuccessCode.UserRetrieved);
         }
-
-        var userData = new UserData
+        catch (Exception)
         {
-            Id = user.Id,
-            Username = user.Username,
-            Email = user.Email,
-            CreatedAt = user.CreatedAt,
-            LastLoginAt = user.LastLoginAt,
-            IsActive = user.IsActive
-        };
-
-        return Result<UserData>.Success(userData, SuccessCode.UserRetrieved);
+            return Result<UserData>.Error((int)AuthErrorCode.DatabaseError);
+        }
     }
 }
